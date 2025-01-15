@@ -1,5 +1,7 @@
+/examples
+/build
+/.vscode
+
 *.exe
 *.bin
-*.txt
-.vscode
-.json
+*.json
