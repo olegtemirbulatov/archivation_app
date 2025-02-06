@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.31.0)
 project(archivation_app)
 set(SOURCES src/readandwrite.cpp src/main.cpp algorithms/lz77.cpp)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall")
 add_executable(${PROJECT_NAME} ${SOURCES})
-include_directories("include/")
+include_directories("include/" "exceptions/")

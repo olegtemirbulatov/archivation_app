@@ -2,84 +2,143 @@
 #include <filesystem>
 #include <string>
 #include <iostream>
-#include <functional>
 #include <forward_list>
-#include <list>
 #include <memory>
+#include <getopt.h>
 
 #include "lz77.hpp"
 #include "readandwrite.hpp"
+#include "inputParametersException.hpp"
 
-namespace fs = std::filesystem;
+#define MIN_LA_SIZE 2       /* min lookahead size */
+#define MAX_LA_SIZE 255   /* max lookahead size */
+#define MIN_SB_SIZE 2       /* min search buffer size */
+#define MAX_SB_SIZE 255   /* max search buffer size */
 
-std::string get_writing_path(const std::string& original_path, const std::string& new_path, const fs::directory_entry &dir_entry)
+#define DEFAULT_LA_SIZE 255
+#define DEFAULT_SB_SIZE 255
+
+int main(int argc, char *argv[])
 {
-    // протестировано
-    return dir_entry.path().string().replace(0, original_path.length(), new_path, 0, new_path.length());
-}
+    const char *short_options = "hcdf:o:l::b::";
 
-void process_all_files(const std::string& path, const std::string& command)
-{
-    if (command == "encode")
+    const struct option long_options[] = 
     {
-        std::string new_path = path + "_encoded";
-        // check if directory excists
-        fs::create_directory(new_path);
+        {"help", no_argument, NULL, 'h'},
+        {"compress", no_argument, NULL, 'c'},
+        {"decompress", no_argument, NULL, 'd'},
+        {"file", required_argument, NULL, 'f'},
+        {"output", required_argument, NULL, 'o'},
+        {"lasize", optional_argument, NULL, 'l'},
+        {"bsize", optional_argument, NULL, 'b'},
+        {NULL, 0, NULL, 0}
+    };
 
-        for (auto const& dir_entry : fs::recursive_directory_iterator(path))
+    int opt;
+    int option_index;
+    std::string input_filepath, output_filepath;
+    bool help_flag = false;
+    MODES mode = MODES::NOT_CHOSEN;
+    unsigned short la_size = DEFAULT_LA_SIZE;
+    unsigned short sb_size = DEFAULT_SB_SIZE;
+
+    while ((opt = getopt_long(argc, argv, short_options, long_options, &option_index)) != -1)
+    {
+        switch (opt)
         {
-            std::string writing_path = get_writing_path(path, new_path, dir_entry);
-
-            if (fs::is_directory(dir_entry))
-            {
-                fs::create_directory(writing_path);
-            }
-            else
-            {
-                std::shared_ptr<std::string> s {std::make_shared<std::string>()};
-                read_raw_file(dir_entry.path().string(), s);
-                std::shared_ptr<std::forward_list<CodeNode>> code {LZ77(s)};
-                write_bin_file(writing_path, code);
-            }
+        case 'h':
+        {
+            std::cout << "Syntax: ./archivation_app.exe <options>\n" << 
+            "Options: -c or --compress                      compression mode\n" <<
+            "         -d or --decompress                    decompression mode\n" <<
+            "         -f <filepath> or --file <filepath>    input file or directory path to compress or decompress\n" <<
+            "         -o <filepath> or --output <filepath>  output file or directory path to save a result\n" <<
+            "         -l <size> or --lasize <size>          lookahead size (optional, default 4095)\n" <<
+            "         -b <size> or --bsize <size>           search-buffer size (optional, default 4095)\n" <<
+            "         -h or --help                          help\n";
+            help_flag = true;
+            break;
+        };
+        case 'c':
+        {
+            mode = MODES::ENCODE;
+            break;
+        };
+        case 'd':
+        {
+            mode = MODES::DECODE;
+            break;
+        };
+        case 'f':
+        {
+            input_filepath = optarg;
+            break;
+        };
+        case 'o':
+        {
+            output_filepath = optarg;
+            break;
+        };
+        case 'l':
+        {
+            // set look ahead window size
+            la_size = static_cast<unsigned short>(std::atoi(optarg));
+            break;
+        };
+        case 'b':
+        {
+            // set search buffer size
+            sb_size = static_cast<unsigned short>(std::atoi(optarg));
+            break;
+        };
+        case '?':
+        default:
+        {
+            throw InputParametersException("Found unknown option");
+            break;
+        };
         }
     }
 
-    else if (command == "decode")
+    if (!help_flag)
     {
-        std::string new_path = path + "_decoded";
-        // check if directory excists
-        fs::create_directory(new_path);
-
-        for (auto const& dir_entry : fs::recursive_directory_iterator(path))
+        try
         {
-            std::string writing_path = get_writing_path(path, new_path, dir_entry);
+            if (mode == MODES::NOT_CHOSEN)
+            {
+                throw InputParametersException("Mode not chosen (to compress or to decompress)");
+            }
 
-            if (fs::is_directory(dir_entry))
+            if (!input_filepath.size())
             {
-                fs::create_directory(writing_path);
+                throw InputParametersException("Input file path not provided");
             }
-            else
+
+            if (!output_filepath.size())
             {
-                std::shared_ptr<std::forward_list<CodeNode>> code { read_bin_file(dir_entry.path().string()) };
-                std::shared_ptr<std::string> s {std::make_shared<std::string>()};
-                s = LZ77decode(code);
-                write_orig_file(writing_path, s);
+                throw InputParametersException("Output file path not provided");
             }
+
+            if (la_size > MAX_LA_SIZE || la_size < MIN_LA_SIZE)
+            {
+                throw InputParametersException("Wrong lookahead size provided");
+            }
+
+            if (sb_size > MAX_SB_SIZE || sb_size < MIN_SB_SIZE)
+            {
+                throw InputParametersException("Wrong search buffer size provided");
+            }
+
+            process_all_files(input_filepath, output_filepath, mode, la_size, sb_size);
+        }
+        catch(const std::exception& e)
+        {
+            std::cerr << e.what() << '\n';
         }
     }
-}
-
-int main()
-{
-    std::string path_to_encode = "D:\\Portfolio\\archivation\\examples";
-    process_all_files(path_to_encode, "encode");
-
-    std::string path_to_decode = "D:\\Portfolio\\archivation\\examples_encoded";
-    process_all_files(path_to_decode, "decode");
 
     return 0;
 }
-
 
 /*
 Дальнейшие планы:
@@ -90,15 +149,4 @@ int main()
 5. архивирование других, не txt форматов
 6. добавить cmake и git - сделано!
 7. добавить архивирование всей директории - сделано
-8. добавить многопоточность - ?
-9. добавить qt
 */
-
-
-
-
-
-
-
-
-
